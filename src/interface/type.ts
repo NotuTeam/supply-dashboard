@@ -130,11 +130,31 @@ export interface UserApiResponse {
   updatedAt: string;
 }
 
-export interface ProductFlowLog {
+export interface ShipmentFlowLog {
+  type: "shipment";
   shipmentId: number;
   containerNumber: string;
   status: ShipmentStatus;
   qty: number;
   eta: string;
   etd: string;
+  happenedAt: string;
 }
+
+export interface ProductStockOutLog {
+  id: number;
+  productId: number;
+  qty: number;
+  stockOutAt: string;
+  createdAt: string;
+}
+
+export interface ProductStockOutFlowLog {
+  type: "stock_out";
+  id: number;
+  qty: number;
+  stockOutAt: string;
+  happenedAt: string;
+}
+
+export type ProductFlowLog = ShipmentFlowLog | ProductStockOutFlowLog;

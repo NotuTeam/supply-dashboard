@@ -4,17 +4,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Package,
-  Truck,
-  Clock,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Package, Truck, Clock, MinusCircle } from "lucide-react";
 import AxiosClient from "@/lib/axios";
 import toast from "react-hot-toast";
 import dayjs from "dayjs";
-import { ApiProduct, ProductFlowLog, ProductView, Shipment } from "@/interface/type";
+import { ApiProduct, ProductFlowLog, ProductStockOutLog, ProductView, Shipment } from "@/interface/type";
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -23,6 +17,10 @@ export default function ProductDetailPage() {
 
   const [product, setProduct] = useState<ProductView | null>(null);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [stockOutLogs, setStockOutLogs] = useState<ProductStockOutLog[]>([]);
+  const [stockOutQty, setStockOutQty] = useState(1);
+  const [stockOutAt, setStockOutAt] = useState(dayjs().format("YYYY-MM-DDTHH:mm"));
+  const [submittingStockOut, setSubmittingStockOut] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,13 +31,15 @@ export default function ProductDetailPage() {
 
   const fetchData = async () => {
     try {
-      const [productsRes, shipmentsRes] = await Promise.all([
+      const [productsRes, shipmentsRes, stockOutLogsRes] = await Promise.all([
         AxiosClient.get<ApiProduct[]>("/products"),
         AxiosClient.get<Shipment[]>("/shipments"),
+        AxiosClient.get<ProductStockOutLog[]>(`/products/${productId}/stock-out-logs`),
       ]);
 
       const shipmentData = shipmentsRes.data || [];
       setShipments(shipmentData);
+      setStockOutLogs(stockOutLogsRes.data || []);
 
       const foundProduct = (productsRes.data || []).find((p) => p.id === productId);
       if (foundProduct) {
@@ -72,24 +72,67 @@ export default function ProductDetailPage() {
     }
   };
 
+  const handleStockOutSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!product) return;
+
+    if (stockOutQty <= 0) {
+      toast.error("Qty stok keluar harus lebih dari 0");
+      return;
+    }
+
+    if (stockOutQty > product.qty) {
+      toast.error(`Stok keluar (${stockOutQty}) tidak boleh lebih besar dari stok tersedia (${product.qty})`);
+      return;
+    }
+
+    try {
+      setSubmittingStockOut(true);
+      await AxiosClient.post(`/products/${product.id}/stock-out`, {
+        qty: stockOutQty,
+        stockOutAt: dayjs(stockOutAt).toISOString(),
+      });
+      toast.success("Stok keluar berhasil dicatat");
+      setStockOutQty(1);
+      setStockOutAt(dayjs().format("YYYY-MM-DDTHH:mm"));
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Gagal mencatat stok keluar");
+    } finally {
+      setSubmittingStockOut(false);
+    }
+  };
+
   const productFlowLogs: ProductFlowLog[] = useMemo(() => {
     if (!product) return [];
 
-    return shipments
-      .flatMap((shipment) =>
-        shipment.items
-          .filter((item) => item.productId === product.id)
-          .map((item) => ({
-            shipmentId: shipment.id,
-            containerNumber: shipment.containerNumber,
-            status: shipment.status,
-            qty: item.qty,
-            eta: shipment.eta,
-            etd: shipment.etd,
-          }))
-      )
-      .sort((a, b) => dayjs(b.eta).valueOf() - dayjs(a.eta).valueOf());
-  }, [shipments, product]);
+    const shipmentLogs: ProductFlowLog[] = shipments.flatMap((shipment) =>
+      shipment.items
+        .filter((item) => item.productId === product.id)
+        .map((item) => ({
+          type: "shipment",
+          shipmentId: shipment.id,
+          containerNumber: shipment.containerNumber,
+          status: shipment.status,
+          qty: item.qty,
+          eta: shipment.eta,
+          etd: shipment.etd,
+          happenedAt: shipment.eta,
+        }))
+    );
+
+    const stockOutFlowLogs: ProductFlowLog[] = stockOutLogs.map((log) => ({
+      type: "stock_out",
+      id: log.id,
+      qty: log.qty,
+      stockOutAt: log.stockOutAt,
+      happenedAt: log.stockOutAt,
+    }));
+
+    return [...shipmentLogs, ...stockOutFlowLogs].sort(
+      (a, b) => dayjs(b.happenedAt).valueOf() - dayjs(a.happenedAt).valueOf()
+    );
+  }, [shipments, stockOutLogs, product]);
 
   const getStockStatus = (available: number) => {
     if (available === 0) return { label: "Habis", color: "bg-red-100 text-red-700" };
@@ -114,10 +157,7 @@ export default function ProductDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <button
-          onClick={() => router.back()}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
+        <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         <div>
@@ -153,27 +193,79 @@ export default function ProductDetailPage() {
         </div>
 
         <div className="border-t border-gray-200 pt-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Keluarkan Stok</h3>
+          <form onSubmit={handleStockOutSubmit} className="grid grid-cols-1 md:grid-cols-[180px_1fr_auto] gap-3 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Qty Keluar</label>
+              <input
+                type="number"
+                min={1}
+                max={product.qty}
+                value={stockOutQty}
+                onChange={(e) => setStockOutQty(Number(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal Stok Keluar</label>
+              <input
+                type="datetime-local"
+                value={stockOutAt}
+                onChange={(e) => setStockOutAt(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={submittingStockOut || product.qty <= 0}
+              className="h-10 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {submittingStockOut ? "Menyimpan..." : "Keluarkan"}
+            </button>
+          </form>
+          <p className="text-xs text-gray-500 mt-2">Stok keluar tidak boleh melebihi stok tersedia saat ini ({product.qty}).</p>
+        </div>
+
+        <div className="border-t border-gray-200 pt-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Log Alur Barang</h3>
           {productFlowLogs.length ? (
             <div className="space-y-3">
-              {productFlowLogs.map((log, idx) => (
-                <div
-                  key={`${log.shipmentId}-${idx}`}
-                  className="p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-blue-600" />
-                      <p className="font-medium text-gray-900">Container {log.containerNumber}</p>
+              {productFlowLogs.map((log) =>
+                log.type === "shipment" ? (
+                  <div
+                    key={`shipment-${log.shipmentId}-${log.containerNumber}-${log.qty}-${log.eta}`}
+                    className="p-4 bg-gray-50 rounded-lg border border-gray-100 hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-blue-600" />
+                        <p className="font-medium text-gray-900">Container {log.containerNumber}</p>
+                      </div>
+                      <StatusBadge status={log.status} />
                     </div>
-                    <StatusBadge status={log.status} />
+                    <p className="text-sm text-gray-600 mt-2">Qty: {log.qty}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      ETD {dayjs(log.etd).format("DD MMM YYYY HH:mm")} • ETA {dayjs(log.eta).format("DD MMM YYYY HH:mm")}
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-600 mt-2">Qty: {log.qty}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    ETD {dayjs(log.etd).format("DD MMM YYYY HH:mm")} • ETA {dayjs(log.eta).format("DD MMM YYYY HH:mm")}
-                  </p>
-                </div>
-              ))}
+                ) : (
+                  <div
+                    key={`stock-out-${log.id}`}
+                    className="p-4 bg-red-50 rounded-lg border border-red-100 hover:bg-red-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <MinusCircle className="w-4 h-4 text-red-600" />
+                      <p className="font-medium text-gray-900">Stok Keluar</p>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-2">Qty: {log.qty}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Tanggal keluar: {dayjs(log.stockOutAt).format("DD MMM YYYY HH:mm")}
+                    </p>
+                  </div>
+                )
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-500">Belum ada log alur barang untuk produk ini.</p>
@@ -223,9 +315,5 @@ function StatusBadge({ status }: { status: string }) {
 
   const config = statusConfig[status] || { label: status, color: "bg-gray-100 text-gray-700" };
 
-  return (
-    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
-      {config.label}
-    </span>
-  );
+  return <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>{config.label}</span>;
 }
