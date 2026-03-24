@@ -1,0 +1,83 @@
+/** @format */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+}
+
+* {
+  font-family: var(--font-montserrat), Arial, Helvetica, sans-serif !important;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.ant-input,
+.ant-input-number,
+.ant-select-selector {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: #1a1a1a !important;
+}
+
+.ant-input:hover,
+.ant-input-number:hover,
+.ant-select:hover .ant-select-selector {
+  background-color: #ffffff !important;
+  border-color: #9ca3af !important;
+}
+
+.ant-input:focus,
+.ant-input-number:focus,
+.ant-select-focused .ant-select-selector {
+  background-color: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1) !important;
+}
+
+.ant-picker {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+}
+
+.ant-picker:hover {
+  background-color: #ffffff !important;
+}
+
+.ant-picker-input > input {
+  background-color: #ffffff !important;
+  color: #1a1a1a !important;
+}
